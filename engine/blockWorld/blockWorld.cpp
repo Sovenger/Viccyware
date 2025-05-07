@@ -61,6 +61,15 @@ namespace Anki {
 namespace Vector {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// CONSOLE VARS
+
+// Enable to draw (semi-experimental) bounding cuboids around stacks of 2 blocks
+CONSOLE_VAR(bool, kVisualizeStacks, "BlockWorld", false);
+
+// How "recently" a cube can be seen for it not to get updated via UpdateStacks
+CONSOLE_VAR(u32, kRecentlySeenTimeForStackUpdate_ms, "BlockWorld", 100);
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 BlockWorld::BlockWorld()
 : UnreliableComponent<BCComponentID>(this, BCComponentID::BlockWorld)
 , IDependencyManagedComponent<RobotComponentID>(this, RobotComponentID::BlockWorld)
@@ -77,12 +86,12 @@ void BlockWorld::InitDependent(Robot* robot, const RobotCompMap& dependentComps)
   // 1x1 Light Cubes
   //
   DefineObject(std::make_unique<Block>(ObjectType::Block_LIGHTCUBE1));
-#ifdef SIMULATOR
+// #ifdef SIMULATOR
   // VIC-12886 These object types are only used in Webots tests (not in the real world), so only define them if this
   // is sim. The physical robot can sometimes hallucinate these objects, which causes issues.
   DefineObject(std::make_unique<Block>(ObjectType::Block_LIGHTCUBE2));
   DefineObject(std::make_unique<Block>(ObjectType::Block_LIGHTCUBE3));
-#endif
+// #endif
 
   //////////////////////////////////////////////////////////////////////////
   // Charger
@@ -959,7 +968,7 @@ Result BlockWorld::ProcessVisualObservations(const std::vector<std::shared_ptr<O
       LOG_INFO("BlockWorld.ProcessVisualObservations.SeeingCarriedObject",
                "We have observed object %d, so we must not be carrying it anymore. Unsetting as carried object.",
                object->GetID().GetValue());
-      _robot->GetCarryingComponent().UnSetCarryingObject();
+      _robot->GetCarryingComponent().UnSetCarryingObjects();
     }
     
     // Update map component
@@ -1087,6 +1096,122 @@ std::vector<std::shared_ptr<ObservableObject>> BlockWorld::FilterRawObservedObje
   
   return objectsSeenFilt;
 }
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+void BlockWorld::UpdatePoseOfStackedObjects()
+{
+  // DEV_ASSERT(_trackPoseChanges, "BlockWorld.UpdatePoseOfStackedObjects.CanRunOnlyWhileTrackingPoseChanges");
+
+  // // iterate all changed objects updating any objects we think are on top of them
+  // auto changedObjectIt = _objectPoseChangeList.begin();
+  // while ( changedObjectIt != _objectPoseChangeList.end() )
+  // {
+  //   // grab the object whose pose we changed (we can't trust caching pointers in case we rejigger)
+  //   ObservableObject* changedObjectPtr = GetLocatedObjectByID( changedObjectIt->_id );
+  //   if ( nullptr != changedObjectPtr )
+  //   {
+  //     // find the object that is currently on top of the old position
+
+  //     // TODO COZMO-5591
+  //     // change FindLocatedObjectOnTopOf to FindObjectsOnTopOf and return a vector. Potentially we could have more
+  //     // than object directly on top of us, or a moved object could have ended up on top of our old pose, which
+  //     // would then trump the object that used to be our old top. This could be solved by returning all
+  //     // current objects on top of our old pose, and then discarding those that have changed their poses, allowing
+  //     // us to fix both issues. For the moment, because we need to ship I am supporting only one (old code
+  //     // was supporting one anyway)
+  //     ObservableObject* myOldCopy = changedObjectPtr->CloneType();
+  //     myOldCopy->InitPose(changedObjectIt->_oldPose, changedObjectIt->_oldPoseState);
+
+  //     BlockWorldFilter filter;
+  //     // Ignore the object we are looking on top off so that we don't consider it as on top of itself
+  //     filter.AddIgnoreID(changedObjectPtr->GetID());
+
+  //     // some objects should not be updated! (specially those that are not managed through observations)
+  //     // TODO rsam/andrew: I don't like not having to specify true/false for families. Whether a new family
+  //     // gets included or ignored happens silently for filters if we don't static_assert requiring all
+  //     filter.AddIgnoreFamily(Anki::Vector::ObjectFamily::MarkerlessObject);
+  //     filter.AddIgnoreFamily(Anki::Vector::ObjectFamily::CustomObject);
+
+  //     // When Cozmo is looking at a stack/pyramid from a certain distance, the top cube can toggle rapidly between
+  //     // 'known' and 'dirty' pose state, causing the cube LEDs to flash on and off rapidly. This may cause users
+  //     // to think there is an issue with the cube. To avoid this, we do not allow updating a stack if we have seen
+  //     // the top cube "recently", because it's likely that we are simply not seeing all the cubes' markers in all the
+  //     // frames. See also notes in COZMO-10580.
+  //     const RobotTimeStamp_t lastProcImageTime_ms = _robot->GetLastImageTimeStamp();
+  //     BlockWorldFilter::FilterFcn notSeenRecently = [lastProcImageTime_ms](const ObservableObject* obj)
+  //     {
+  //       if(obj->GetLastObservedTime() + kRecentlySeenTimeForStackUpdate_ms < lastProcImageTime_ms) {
+  //         // Not seen recently, so DO allow this object through the filter for updating
+  //         return true;
+  //       }
+  //       // Seen recently, don't update this object
+  //       return false;
+  //     };
+
+  //     filter.AddFilterFcn(notSeenRecently);
+
+  //     // find object
+  //     ObservableObject* objectOnTopOfOldPose = FindLocatedObjectOnTopOf(*myOldCopy, STACKED_HEIGHT_TOL_MM, filter);
+  //     if ( nullptr != objectOnTopOfOldPose )
+  //     {
+  //       // we found an object currently on top of our old pose
+  //       const ObjectID& topID = objectOnTopOfOldPose->GetID();
+
+  //       // if this is not an object we are carrying
+  //       if ( !_robot->GetCarryingComponent().IsCarryingObject(topID) )
+  //       {
+  //         // check if it used to be there too or we have already moved it this udpate
+  //         auto matchIDlambda = [&topID](const PoseChange& a) { return a._id == topID; };
+  //         const bool alreadyChanged = std::find_if(_objectPoseChangeList.begin(), _objectPoseChangeList.end(), matchIDlambda) != _objectPoseChangeList.end();
+  //         if ( !alreadyChanged )
+  //         {
+  //           // we haven't changed it this frame, we want to modify it based on the change we made to the bottom one
+  //           Pose3d topPose = objectOnTopOfOldPose->GetPose();
+  //           if(topPose.GetWithRespectTo(myOldCopy->GetPose(), topPose))
+  //           {
+  //             // P_top_wrt_origin = P_newBtm_wrt_origin * P_top_wrt_oldBtm:
+  //             topPose.PreComposeWith(changedObjectPtr->GetPose());
+  //             topPose.SetParent(changedObjectPtr->GetPose().GetParent());
+
+  //             // update its pose based on the stack dependency. We expect this observation to add the entry for this
+  //             // object in objectPoseUpdates, and thus naturally iterating our way up stacks of more than 2 objects
+
+  //             // TODO: Updated this to fix build
+  //             // Result result = _robot->GetObjectPoseConfirmer().AddObjectRelativeObservation(objectOnTopOfOldPose, topPose, changedObjectPtr);
+  //             Result result = SetObjectPose(topID, topPose, PoseState::Dirty);
+  //             if(RESULT_OK != result)
+  //             {
+  //               PRINT_NAMED_WARNING("BlockWorld.UpdateRotationOfObjectsStackedOn.AddRelativeObservationFailed",
+  //                                   "Giving up on rest of stack");
+  //             }
+  //           }
+  //           else
+  //           {
+  //             PRINT_NAMED_WARNING("BlockWorld.UpdateStacks.OriginMismatch",
+  //                                 "Can't obtain topPose wrt old, but that's exactly how we found the object in topPose.");
+  //           }
+  //         } // else: object already moved
+  //       } // else: we are carrying the object on top
+  //     } // else: there are no objects on top
+
+  //     Util::SafeDelete(myOldCopy);
+  //   }
+  //   else
+  //   {
+  //     // if the object changed to Invalid (unobserved, unknown, ..), then we don't have to update objects
+  //     // that were on top of it here. The system that flagged as unobserved should have updated the top one
+  //     // two.
+  //     // TODO: Is that currently happening ^?
+  //     // TODO Test: see a stack, look to bottom only, move stack, see cube behind (will unobserve bottom of stack).
+  //     //            Does this flag the top as unknown too? Should it?
+  //     PRINT_CH_INFO("BlockWorld", "BlockWorld.UpdateStacks", "'%d' does not exist in current frame. Ignoring change.",
+  //       changedObjectIt->_id.GetValue() );
+  //   }
+
+  //   // continue to next object
+  //   ++changedObjectIt;
+  // }
+} // UpdatePoseOfStackedObjects()
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 void BlockWorld::CheckForUnobservedObjects(RobotTimeStamp_t atTimestamp)
@@ -1614,6 +1739,39 @@ void BlockWorld::MarkObjectDirty(ObservableObject* object)
     if (_robot->IsPoseInWorldOrigin(object->GetPose())) {
       _robot->GetMapComponent().UpdateObjectPose(*object, &object->GetPose(), oldPoseState);
     }
+
+    // TODO; Not sure if we need this. Add , bool propagateStack) to the signature when trying this out
+    /*
+    // we changed the pose, propagate if needed
+    if ( propagateStack )
+    {
+      BlockWorldFilter filterOnTop;
+      // Ignore the object we are looking on top off so that we don't consider it as on top of itself
+      filterOnTop.AddIgnoreID(object->GetID());
+      // some objects should not be updated
+      filterOnTop.AddIgnoreFamily(Anki::Vector::ObjectFamily::MarkerlessObject);
+      filterOnTop.AddIgnoreFamily(Anki::Vector::ObjectFamily::CustomObject);
+
+      // find object on top
+      ObservableObject* objectOnTop = _robot->GetBlockWorld().FindLocatedObjectOnTopOf(*object, STACKED_HEIGHT_TOL_MM, filterOnTop);
+      if ( nullptr != objectOnTop )
+      {
+        // if this is not an object we are carrying (rsam: I copied this from BlockWorld, not sure if it would even
+        // happen, but sounds like a good check, since cubes on lift are considered Known at the moment
+        if ( !_robot->GetCarryingComponent().IsCarryingObject(objectOnTop->GetID()) )
+        {
+          // can call recursively
+          MarkObjectDirty(objectOnTop, propagateStack);
+        }
+        else
+        {
+          PRINT_CH_INFO("PoseConfirmer", "ObjectPoseConfirmer.MarkObjectDirty.TryingToChangeCarriedObject",
+                        "Carrying %d, considered part of a Dirty stack. Ignoring propagation",
+                        objectOnTop->GetID().GetValue());
+        }
+      }
+    }
+      */
   }
 }
 
@@ -1743,6 +1901,9 @@ Result BlockWorld::UpdateObservedMarkers(const std::list<Vision::ObservedMarker>
     // Delete any objects that should have been observed but weren't,
     // visualize objects that were observed:
     CheckForUnobservedObjects(atTimestamp);
+
+    // update stacks
+    UpdatePoseOfStackedObjects();
   }
   else
   {
@@ -1894,7 +2055,7 @@ void BlockWorld::ClearLocatedObjectHelper(ObservableObject* object)
                   "Clearing %s object %d which robot thinks it is carrying.",
                   ObjectTypeToString(object->GetType()),
                   object->GetID().GetValue());
-    _robot->GetCarryingComponent().UnSetCarryingObject();
+    _robot->GetCarryingComponent().UnSetCarryingObjects(false);
   }
 
   if(_selectedObjectID == object->GetID()) {
@@ -1904,8 +2065,145 @@ void BlockWorld::ClearLocatedObjectHelper(ObservableObject* object)
                   object->GetID().GetValue());
     _selectedObjectID.UnSet();
   }
+
+  // TODO: Adding BlockWorldFilter() here to fix build. Not sure if it should be there.
+  ObservableObject* objectOnTop = FindLocatedObjectOnTopOf(*object, STACKED_HEIGHT_TOL_MM, BlockWorldFilter());
+  if(objectOnTop != nullptr)
+  {
+    ClearLocatedObjectHelper(objectOnTop);
+  }
+
+  // TODO: evaluate if we want the concept of "previously known to be somewhere"
+  // _robot->GetObjectPoseConfirmer().MarkObjectUnknown(object);
+
+  // Flag that we removed an object
+  // TODO: May not need this anymore...
+  // _didObjectsChange = true;
+  // _robotMsgTimeStampAtChange = _robot->GetLastMsgTimestamp();
 }
 
+ObservableObject *BlockWorld::FindObjectOnTopOrUnderneathHelper(const ObservableObject &referenceObject,
+                                                                f32 zTolerance,
+                                                                const BlockWorldFilter &filterIn,
+                                                                bool onTop) const
+{
+  // Three checks:
+  // 1. objects are within same coordinate frame
+  // 2. centroid of candidate object projected onto "ground" (XY) plane must lie within
+  //    the check object's projected bounding box
+  // 3. (a) for "onTop": bottom of candidate object must be "near" top of reference object
+  //    (b) for "!onTop": top of canddiate object must be "near" bottom of reference object
+
+  const Pose3d refWrtOrigin = referenceObject.GetPose().GetWithRespectToRoot();
+  const Quad2f refProjectedQuad = referenceObject.GetBoundingQuadXY(refWrtOrigin);
+
+  // Find the point at the top middle of the object on bottom
+  // (or if !onTop, the bottom middle of the object on top)
+  const f32 zSize = referenceObject.GetDimInParentFrame<'Z'>(refWrtOrigin);
+  const f32 topOfObjectOnBottom = (refWrtOrigin.GetTranslation().z() +
+                                  (onTop ? 0.5f : -0.5f) * zSize);
+
+  BlockWorldFilter filter(filterIn);
+  filter.AddIgnoreID(referenceObject.GetID());
+  filter.AddFilterFcn(
+    [&topOfObjectOnBottom, &refWrtOrigin, &refProjectedQuad, &zTolerance, &onTop](const ObservableObject* candidateObject) -> bool
+    {
+      // This should never happen: objects in blockworld should always have parents (and not be origins themselves)
+      DEV_ASSERT(refWrtOrigin.HasParent(), "BlockWorld.FindLocatedObjectOnTopOfUnderneathHelper.NullParent");
+
+      Pose3d candidateWrtOrigin;
+      const bool inSameFrame = candidateObject->GetPose().GetWithRespectTo(refWrtOrigin.GetParent(), candidateWrtOrigin);
+      if(!inSameFrame)
+      {
+        return false;
+      }
+
+      //re-assign z coordinate for intersection check
+      const float candidateCurrentZ = candidateWrtOrigin.GetTranslation().z();
+      Vec3f candidateProjectedTranslation = {candidateWrtOrigin.GetTranslation().x(),
+                                                    candidateWrtOrigin.GetTranslation().y(),
+                                                    refWrtOrigin.GetTranslation().z()};
+      candidateWrtOrigin.SetTranslation(candidateProjectedTranslation);
+
+      // perform intersection check
+      const Quad2f candidateProjected = candidateObject->GetBoundingQuadXY(candidateWrtOrigin);
+      const bool projectedQuadsIntersect = refProjectedQuad.Intersects(candidateProjected);
+
+      // restore candidate z
+      candidateProjectedTranslation.z() = candidateCurrentZ;
+      candidateWrtOrigin.SetTranslation(candidateProjectedTranslation);
+
+      if(!projectedQuadsIntersect)
+      {
+        return false;
+      }
+
+      // Find the point at bottom middle of the object we're checking to be on top
+      // (or if !onTop, the top middle of object we're checking to be underneath)
+      const f32 zSize = candidateObject->GetDimInParentFrame<'Z'>(candidateWrtOrigin);
+      const f32 bottomOfCandidateObject = (candidateWrtOrigin.GetTranslation().z() +
+                                          (onTop ? -0.5f : 0.5f) * zSize);
+
+      // If the top of the bottom object and the bottom the candidate top object are
+      // close enough together, return this as the object on top
+      const f32 dist = std::abs(topOfObjectOnBottom - bottomOfCandidateObject);
+
+      if(Util::IsFltLE(dist, zTolerance))
+      {
+        return true;
+      }
+      else
+      {
+        return false;
+      }
+    });
+
+  ObservableObject* foundObject = FindLocatedObjectHelper(filter, nullptr, true);
+
+  if(kVisualizeStacks && _robot->GetContext()->GetVizManager() != nullptr)
+  {
+    // Cheap method to visualize stacks as a cuboid around both objects involved
+    const u32 stackID = referenceObject.GetID().GetValue() + (onTop ? 250 : 500);
+    if(nullptr != foundObject)
+    {
+      Quad2f foundQuad = foundObject->GetBoundingQuadXY(foundObject->GetPose().GetWithRespectToRoot());
+
+      // Get bounding box for the two object's projected bounding quads
+      std::vector<Point2f> corners;
+      corners.reserve(8);
+      std::copy(refProjectedQuad.begin(), refProjectedQuad.end(), std::back_inserter(corners));
+      std::copy(foundQuad.begin(), foundQuad.end(), std::back_inserter(corners));
+      Rectangle<f32> bbox(corners);
+
+      Pose3d vizPose(0, Z_AXIS_3D(), Point3f(bbox.GetXmid(), bbox.GetYmid(), topOfObjectOnBottom));
+
+      // compute maxRotatedAxis_zValue: the value of the axis that contributes the most in Z after the object
+      // has been rotated (like we do in the actual code, this is just render)
+      const Vec3f& foundObjSize = foundObject->GetSize();
+      const Vec3f zCoordRotation = foundObject->GetPose().GetWithRespectToRoot().GetRotation().GetRotationMatrix().GetRow(2);
+      const float rotatedXAxis_zValue = std::abs(zCoordRotation.x() * foundObjSize.x());
+      const float rotatedYAxis_zValue = std::abs(zCoordRotation.y() * foundObjSize.y());
+      const float rotatedZAxis_zValue = std::abs(zCoordRotation.z() * foundObjSize.z());
+
+      const float maxRotatedAxis_zValue = std::max( rotatedXAxis_zValue,
+                                                    std::max(rotatedYAxis_zValue, rotatedZAxis_zValue) );
+      const f32 height = topOfObjectOnBottom + maxRotatedAxis_zValue;
+
+      _robot->GetContext()->GetVizManager()->DrawCuboid(stackID,
+                                                        Point3f(bbox.GetHeight(),
+                                                                bbox.GetWidth(),
+                                                                height),
+                                                        vizPose,
+                                                        onTop ? ColorRGBA(0.5f,0.f,0.75f,0.6f) : ColorRGBA(0.75f,0.1f,0.5f,0.6f) );
+    }
+    else
+    {
+      _robot->GetContext()->GetVizManager()->EraseCuboid(stackID);
+    }
+  }
+
+  return foundObject;
+}
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 void BlockWorld::FindConnectedMatchingBlocks(const BlockWorldFilter& filter, std::vector<const Block*>& result) const
@@ -2078,9 +2376,9 @@ void BlockWorld::GetLocatedObjectBoundingBoxesXY(const f32 minHeight, const f32 
 void BlockWorld::GetObstacles(std::vector<std::pair<Quad2f,ObjectID> >& boundingBoxes, const f32 padding) const
 {
   BlockWorldFilter filter;
-  if (_robot->GetCarryingComponent().IsCarryingObject()) {
+  // if (_robot->GetCarryingComponent().IsCarryingObject()) {
     filter.SetIgnoreIDs({{_robot->GetCarryingComponent().GetCarryingObjectID()}});
-  }
+  // }
 
   // Figure out height filters in world coordinates (because GetLocatedObjectBoundingBoxesXY()
   // uses heights of objects in world coordinates)

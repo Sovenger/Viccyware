@@ -33,7 +33,7 @@ enum uint_8 FeatureType {
   HowOldAreYou,
   StayOnChargerUntilCharged,
   EyeColorVC,
-
+  StackBlocks,
   TestFeature,
   PRDemo,
 }

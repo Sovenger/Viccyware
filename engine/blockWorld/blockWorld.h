@@ -258,7 +258,24 @@ public:
                                       std::vector<ObservableObject*> &intersectingExistingObjects,
                                       f32 padding_mm,
                                       const BlockWorldFilter& filter);
-  
+
+  // Find an object on top of the given object, using a given height tolerance
+  // between the top of the given object on bottom and the bottom of existing
+  // candidate objects on top. Returns nullptr if no object is found.
+  inline const ObservableObject *FindLocatedObjectOnTopOf(const ObservableObject &objectOnBottom,
+                                                          f32 zTolerance,
+                                                          const BlockWorldFilter &filter) const;
+  inline       ObservableObject *FindLocatedObjectOnTopOf(const ObservableObject &objectOnBottom,
+                                                          f32 zTolerance,
+                                                          const BlockWorldFilter &filter);
+  // Similar to FindLocatedObjectOnTopOf, but in reverse: find object directly underneath given object
+  inline const ObservableObject *FindLocatedObjectUnderneath(const ObservableObject &objectOnTop,
+                                                             f32 zTolerance,
+                                                             const BlockWorldFilter &filterIn) const;
+  inline       ObservableObject *FindLocatedObjectUnderneath(const ObservableObject &objectOnTop,
+                                                             f32 zTolerance,
+                                                             const BlockWorldFilter &filterIn);
+
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // BoundingBoxes
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -386,7 +403,12 @@ private:
                                                          const Vec3f& distThreshold,
                                                          const Radians& angleThreshold,
                                                          const BlockWorldFilter& filter) const;
-  
+
+  ObservableObject *FindObjectOnTopOrUnderneathHelper(const ObservableObject &referenceObject,
+                                                      f32 zTolerance,
+                                                      const BlockWorldFilter &filterIn,
+                                                      bool onTop) const;
+
   // Helper for finding the object with a specified ID in the given container.
   // Returns an iterator to that object's entry.
   ObjectsContainer_t::const_iterator FindInContainerWithID(const ObjectsContainer_t& container,
@@ -427,6 +449,10 @@ private:
   //   - The returned list of objects is guaranteed to be sorted on observation distance.
   std::vector<std::shared_ptr<ObservableObject>> FilterRawObservedObjects(const std::vector<std::shared_ptr<ObservableObject>>& objectsSeenRaw);
   
+  // Updates poses of stacks of objects by finding the difference between old object
+  // poses and applying that to the new observed poses
+  void UpdatePoseOfStackedObjects();
+
   // Clear the object from shared uses, like localization, selection or carrying, etc. So that it can be removed
   // without those system lingering
   void ClearLocatedObjectHelper(ObservableObject* object);
@@ -606,6 +632,38 @@ ObservableObject* BlockWorld::FindLocatedClosestMatchingObject(ObjectType withTy
                                                                const BlockWorldFilter& filter)
 {
   return FindLocatedClosestMatchingTypeHelper(withType, pose, distThreshold, angleThreshold, filter);
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+const ObservableObject *BlockWorld::FindLocatedObjectOnTopOf(const ObservableObject &objectOnBottom,
+                                                             f32 zTolerance,
+                                                             const BlockWorldFilter &filter) const
+{
+  return FindObjectOnTopOrUnderneathHelper(objectOnBottom, zTolerance, filter, true); // returns const
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ObservableObject *BlockWorld::FindLocatedObjectOnTopOf(const ObservableObject &objectOnBottom,
+                                                       f32 zTolerance,
+                                                       const BlockWorldFilter &filter)
+{
+  return FindObjectOnTopOrUnderneathHelper(objectOnBottom, zTolerance, filter, true); // returns non-const
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+const ObservableObject *BlockWorld::FindLocatedObjectUnderneath(const ObservableObject &objectOnTop,
+                                                                f32 zTolerance,
+                                                                const BlockWorldFilter &filter) const
+{
+  return FindObjectOnTopOrUnderneathHelper(objectOnTop, zTolerance, filter, false); // returns const
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ObservableObject *BlockWorld::FindLocatedObjectUnderneath(const ObservableObject &objectOnTop,
+                                                          f32 zTolerance,
+                                                          const BlockWorldFilter &filter)
+{
+  return FindObjectOnTopOrUnderneathHelper(objectOnTop, zTolerance, filter, false); // returns non-const
 }
 
 } // namespace Vector

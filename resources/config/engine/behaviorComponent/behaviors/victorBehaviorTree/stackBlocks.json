@@ -1,0 +1,8 @@
+{
+  "behaviorID": "StackBlocks",
+  "behaviorClass": "StackBlocks",
+  "associatedActiveFeature": "StackBlocks",
+  "numPlaceRetries": 1,
+  "pickupBehaviorID": "PickupCube",
+  "stackInAnyOrientation": true
+}

@@ -743,11 +743,21 @@ void Robot::Delocalize(bool isCarryingObject)
     // Carried objects are in the pose chain of the robot, whose origin has now changed.
     // Thus the carried object's actual origin no longer matches the way they are stored
     // in BlockWorld.
-    const auto& objectID = GetCarryingComponent().GetCarryingObjectID();
-    const Result result = GetBlockWorld().UpdateObjectOrigin(objectID, oldOriginID);
-    if(RESULT_OK != result)
+    // const auto& objectID = GetCarryingComponent().GetCarryingObjectID();
+    // const Result result = GetBlockWorld().UpdateObjectOrigin(objectID, oldOriginID);
+    // if(RESULT_OK != result)
+    // {
+    //   LOG_WARNING("Robot.Delocalize.UpdateObjectOriginFailed", "Object %d", objectID.GetValue());
+    // }
+    
+    for(auto const& objectID : GetCarryingComponent().GetCarryingObjects())
     {
-      LOG_WARNING("Robot.Delocalize.UpdateObjectOriginFailed", "Object %d", objectID.GetValue());
+      const Result result = GetBlockWorld().UpdateObjectOrigin(objectID, oldOriginID);
+      if(RESULT_OK != result)
+      {
+        LOG_WARNING("Robot.Delocalize.UpdateObjectOriginFailed", "Object %d", objectID.GetValue());
+      }
+
     }
   }
 
@@ -2274,10 +2284,12 @@ ExternalInterface::RobotState Robot::GetRobotState() const
   if (GetCarryingComponent().IsCarryingObject()) {
     msg.status |= (uint32_t)RobotStatusFlag::IS_CARRYING_BLOCK;
     msg.carryingObjectID = GetCarryingComponent().GetCarryingObjectID();
+    msg.carryingObjectOnTopID = GetCarryingComponent().GetCarryingObjectOnTop();
   } else {
     msg.carryingObjectID = -1;
+    msg.carryingObjectOnTopID = -1;
   }
-  msg.carryingObjectOnTopID = -1;
+  // msg.carryingObjectOnTopID = -1;
 
   msg.headTrackingObjectID = GetMoveComponent().GetTrackToObject();
 
@@ -2335,10 +2347,12 @@ external_interface::RobotState* Robot::GenerateRobotStateProto() const
   if (GetCarryingComponent().IsCarryingObject()) {
     status |= (uint32_t)RobotStatusFlag::IS_CARRYING_BLOCK;
     msg->set_carrying_object_id(GetCarryingComponent().GetCarryingObjectID());
+    msg->set_carrying_object_on_top_id(GetCarryingComponent().GetCarryingObjectOnTop());
   } else {
     msg->set_carrying_object_id(-1);
+    msg->set_carrying_object_on_top_id(-1);
   }
-  msg->set_carrying_object_on_top_id(-1);
+  // msg->set_carrying_object_on_top_id(-1);
 
   msg->set_status(status);
 

@@ -850,6 +850,33 @@ namespace Anki {
       _faceAndVerifyAction->ShouldSuppressTrackLocking(true);
       _faceAndVerifyAction->SetRobot(&GetRobot());
 
+      // If we are checking to see if there is an object on top of our dockObject then
+      // add a VisuallyVerifyNoObjectAtPoseAction to the _faceAndVerifyAction
+      if(_checkForObjectOnTopOf)
+      {
+        Pose3d pose = dockObject->GetPose().GetWithRespectToRoot();
+        const Point3f rotatedSize = dockObject->GetSizeInParentFrame(pose);
+        pose.SetTranslation({
+          pose.GetTranslation().x(),
+          pose.GetTranslation().y(),
+          pose.GetTranslation().z() + rotatedSize.z()
+        });
+
+        VisuallyVerifyNoObjectAtPoseAction* verifyNoObjectOnTopOfAction = new VisuallyVerifyNoObjectAtPoseAction(pose,
+                                                                                                                 rotatedSize * 0.5f);
+
+        verifyNoObjectOnTopOfAction->AddIgnoreID(dockObject->GetID());
+
+        // Disable the visual verification from issuing a completion signal
+        verifyNoObjectOnTopOfAction->ShouldSuppressTrackLocking(true);
+
+        _faceAndVerifyAction->AddAction(verifyNoObjectOnTopOfAction);
+
+        // Don't delete actions on completion since PickupObjectAction needs to look though them to determine
+        // if the VerifyNoObjectOnTopOfAction failed in order to set some completion info
+        _faceAndVerifyAction->SetDeleteActionOnCompletion(false);
+      }
+
       if(_firstTurnTowardsObject)
       {
         // Set up a visual verification action to make sure we can still see the correct
@@ -934,7 +961,10 @@ namespace Anki {
           if(VerifyCarryingComponentValid() && _carryingComponentPtr->IsCarryingObject()) {
             PRINT_NAMED_WARNING("PopAWheelieAction.EmitCompletionSignal.ExpectedNotCarryingObject", "");
           } else {
-            info.objectID = _dockObjectID;
+            // info.objectID = _dockObjectID;
+            info.numObjects = 1;
+            info.objectIDs.fill(-1);
+            info.objectIDs[0] = _dockObjectID;
           }
           break;
         }
@@ -1041,7 +1071,10 @@ namespace Anki {
           if(VerifyCarryingComponentValid() && _carryingComponentPtr->IsCarryingObject()) {
             PRINT_NAMED_WARNING("FacePlantAction.EmitCompletionSignal.ExpectedNotCarryingObject", "");
           } else {
-            info.objectID = _dockObjectID;
+            // info.objectID = _dockObjectID;
+            info.numObjects = 1;
+            info.objectIDs.fill(-1);
+            info.objectIDs[0] = _dockObjectID;
           }
           break;
         }
@@ -1196,7 +1229,10 @@ namespace Anki {
     void AlignWithObjectAction::GetCompletionUnion(ActionCompletedUnion& completionUnion) const
     {
       ObjectInteractionCompleted info;
-      info.objectID = _dockObjectID;
+      // info.objectID = _dockObjectID;
+      info.numObjects = 1;
+      info.objectIDs.fill(-1);
+      info.objectIDs[0] = _dockObjectID;
       completionUnion.Set_objectInteractionCompleted(std::move( info ));
 
       IDockAction::GetCompletionUnion(completionUnion);
@@ -1295,8 +1331,30 @@ namespace Anki {
         {
           if(VerifyCarryingComponentValid() && !_carryingComponentPtr->IsCarryingObject()) {
             LOG_INFO("PickupObjectAction.GetCompletionUnion.ExpectedCarryingObject", "");
+
+            if (_checkForObjectOnTopOf && _faceAndVerifyAction != nullptr)
+            {
+              for (const auto &action : _faceAndVerifyAction->GetActionList())
+              {
+                if (action->GetType() == RobotActionType::VISUALLY_VERIFY_NO_OBJECT_AT_POSE &&
+                    action->GetState() == ActionResult::VISUAL_OBSERVATION_FAILED)
+                {
+                  LOG_INFO("PickupObjectAction.GetCompletionUnion.SeeingUnexpectedObject", "");
+                  info.seeingUnexpectedObject = true;
+                }
+              }
+            }
           } else if(VerifyCarryingComponentValid()) {
-            info.objectID = _dockObjectID;
+            const std::set<ObjectID> carriedObjects = _carryingComponentPtr->GetCarryingObjects();
+            info.numObjects = carriedObjects.size();
+            info.objectIDs.fill(-1);
+            info.objectIDs[0] = _dockObjectID;
+            // info.objectID = _dockObjectID;
+
+            u8 objectCnt = 0;
+            for (auto& objID : carriedObjects) {
+              info.objectIDs[objectCnt++] = objID.GetValue();
+            }
           }
           break;
         }
@@ -1648,7 +1706,9 @@ namespace Anki {
     void  PlaceObjectOnGroundAction::GetCompletionUnion(ActionCompletedUnion& completionUnion) const
     {
       ObjectInteractionCompleted info;
-      info.objectID = _carryingObjectID;
+      // info.objectID = _carryingObjectID;
+      info.numObjects = 1;
+      info.objectIDs[0] = _carryingObjectID;
       completionUnion.Set_objectInteractionCompleted(std::move(info));
     }
 
@@ -1690,6 +1750,9 @@ namespace Anki {
       using GE = AudioMetaData::GameEvent::GenericEvent;
       SetPostDockLiftMovingAudioEvent(GE::Play__Robot_Vic_Sfx__Lift_High_Down_Short_Excited);
 
+      // Cozmo is carrying an object and wont be able to see on top of the object
+      SetShouldCheckForObjectOnTopOf(false);
+      
       // SetPlacementOffset set in InitInternal
       if(!(FLT_NEAR(placementOffsetX_mm, 0.f) &&
            FLT_NEAR(placementOffsetY_mm, 0.f))){
@@ -1734,7 +1797,19 @@ namespace Anki {
                                 "Docking object %d not found in world after placing.",
                                 _dockObjectID.GetValue());
           } else {
-            info.objectID = _dockObjectID;
+            // info.objectID = _dockObjectID;
+            auto objectStackIter = info.objectIDs.begin();
+            info.objectIDs.fill(-1);
+            info.numObjects = 0;
+            while(object != nullptr &&
+                  info.numObjects < info.objectIDs.size())
+            {
+              *objectStackIter = object->GetID().GetValue();
+              ++objectStackIter;
+              ++info.numObjects;
+              // TODO: Not sure if just adding BlockWorldFilter() is correct
+              object = GetRobot().GetBlockWorld().FindLocatedObjectOnTopOf(*object, 15.f, BlockWorldFilter());
+            }
           }
           break;
         }
@@ -2292,7 +2367,10 @@ namespace Anki {
             PRINT_NAMED_WARNING("RollObjectAction.EmitCompletionSignal.ExpectedNotCarryingObject", "");
           }
           else {
-            info.objectID = _dockObjectID;
+            // info.objectID = _dockObjectID;
+            info.numObjects = 1;
+            info.objectIDs.fill(-1);
+            info.objectIDs[0] = _dockObjectID;
           }
           break;
         }

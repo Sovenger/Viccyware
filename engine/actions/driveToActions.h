@@ -282,6 +282,9 @@ namespace Anki {
       void SetPreDockCallback(PreDockCallback callback) { _preDockCallback = callback; }
       
       const bool GetUseApproachAngle() const;
+
+      // Whether or not we should look up to check if there is an object above the dockObject
+      void SetShouldCheckForObjectOnTopOf(const bool b);
       
     protected:
 

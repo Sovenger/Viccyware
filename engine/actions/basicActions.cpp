@@ -1916,7 +1916,9 @@ namespace Anki {
     void TurnTowardsObjectAction::GetCompletionUnion(ActionCompletedUnion& completionUnion) const
     {
       ObjectInteractionCompleted info;
-      info.objectID = _objectID;
+      // info.objectID = _objectID;
+      info.objectIDs[0] = _objectID;
+      info.numObjects = 1;
       completionUnion.Set_objectInteractionCompleted(std::move( info ));
     }
     

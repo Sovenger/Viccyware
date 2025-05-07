@@ -226,7 +226,7 @@ namespace Anki {
           const ObjectInteractionCompleted info = msg.completionInfo.Get_objectInteractionCompleted();
           printf("Robot %s picking up object with ID: %d ",
                  ActionResultToString(msg.result),
-                 info.objectID);
+                 info.objectIDs[0]);
           printf("[Tag=%d]\n", msg.idTag);
         }
           break;
@@ -237,7 +237,7 @@ namespace Anki {
           const ObjectInteractionCompleted info = msg.completionInfo.Get_objectInteractionCompleted();
           printf("Robot %s placing object with ID: %d ",
                  ActionResultToString(msg.result),
-                 info.objectID);
+                 info.objectIDs[0]);
           printf("[Tag=%d]\n", msg.idTag);
         }
           break;
@@ -1148,6 +1148,7 @@ namespace Anki {
       m.usePreDockPose = usePreDockPose;
       m.useApproachAngle = useApproachAngle;
       m.approachAngle_rad = approachAngle_rad;
+      m.checkForObjectOnTop = true;
       ExternalInterface::MessageGameToEngine message;
       message.Set_PickupObject(m);
       SendMessage(message);
@@ -1749,6 +1750,11 @@ namespace Anki {
     s32 UiGameController::GetCarryingObjectID() const
     {
       return _robotStateMsg.carryingObjectID;
+    }
+
+    s32 UiGameController::GetCarryingObjectOnTopID() const
+    {
+      return _robotStateMsg.carryingObjectOnTopID;
     }
 
     bool UiGameController::IsRobotStatus(RobotStatusFlag mask) const

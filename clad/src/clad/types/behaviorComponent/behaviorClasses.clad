@@ -61,6 +61,7 @@ enum uint_8 BehaviorClass {
   PlaceCubeByCharger,
   PopAWheelie,
   RequestToGoHome,
+  StackBlocks,
   Turn,
   TurnToFace,
   WiggleOntoChargerContacts,
@@ -141,6 +142,9 @@ enum uint_8 BehaviorClass {
   // eyeColor
   EyeColorVoiceCommand,
 
+  // freeplay/oneShots
+  Singing,
+
   // freeplay/putDownDispatch
   LookForFaceAndCube,
 
@@ -150,9 +154,6 @@ enum uint_8 BehaviorClass {
   Keepaway,
   PounceWithProx,
   PuzzleMaze,
-
-  // freeplay/oneShots
-  Singing,
 
   // gateBehaviors
   ConnectToCube,

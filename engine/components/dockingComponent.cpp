@@ -302,6 +302,13 @@ bool DockingComponent::CanInteractWithObjectHelper(const ObservableObject& objec
     return false;
   }
   
+  // check if it has something on top
+  // TODO: Added BlockWorldFilter() to fix build. Not sure if needed.
+  const ObservableObject* objectOnTop = _robot->GetBlockWorld().FindLocatedObjectOnTopOf(object, STACKED_HEIGHT_TOL_MM, BlockWorldFilter());
+  if ( nullptr != objectOnTop ) {
+    return false;
+  }
+
   return true;
 }
 

@@ -100,7 +100,8 @@ message PickupObject {
     PathMotionProfile  motionProf,
     float_32           approachAngle_rad,
     bool               useApproachAngle,
-    bool               usePreDockPose
+    bool               usePreDockPose,
+    bool               checkForObjectOnTop = 0
 }
 
 // PlaceObjectOnGround
@@ -135,7 +136,8 @@ message PlaceOnObject {
     PathMotionProfile motionProf,
     float_32 approachAngle_rad,
     bool   useApproachAngle,
-    bool usePreDockPose
+    bool usePreDockPose,
+    bool checkForObjectOnTop = 0
 }
 
 // PlaceRelObject
@@ -220,7 +222,8 @@ message RollObject {
   bool doDeepRoll,
   bool useApproachAngle,
   bool usePreDockPose,
-  bool rollWithoutDocking = 0
+  bool rollWithoutDocking = 0,
+  bool checkForObjectOnTop = 0
 }
 
 // SayText

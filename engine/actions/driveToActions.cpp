@@ -405,7 +405,11 @@ namespace Anki {
     void DriveToObjectAction::GetCompletionUnion(ActionCompletedUnion& completionUnion) const
     {
       ObjectInteractionCompleted interactionCompleted;
-      interactionCompleted.objectID = _objectID.GetValue();
+      // interactionCompleted.objectID = _objectID.GetValue();
+      // TODO: Was also this
+      // ObjectInteractionCompleted interactionCompleted({{_objectID.GetValue(), -1, -1, -1, -1}}, 1, false);
+      interactionCompleted.objectIDs[0] = _objectID.GetValue();
+      interactionCompleted.numObjects = 1;
       completionUnion.Set_objectInteractionCompleted(interactionCompleted);
     }
     
@@ -1257,6 +1261,18 @@ namespace Anki {
         return static_cast<DriveToObjectAction*>(_driveToObjectAction.lock().get())->GetUseApproachAngle();
       }
       return false;
+    }
+
+    void IDriveToInteractWithObject::SetShouldCheckForObjectOnTopOf(const bool b)
+    {
+      if(!_dockAction.expired())
+      {
+        static_cast<IDockAction*>(_dockAction.lock().get())->SetShouldCheckForObjectOnTopOf(b);
+      }
+      else
+      {
+        PRINT_NAMED_ERROR("IDriveToInteractWithObject.SetShouldCheckForObjectOnTopOf.NoDockAction", "");
+      }
     }
 
     Result IDriveToInteractWithObject::UpdateDerived()
